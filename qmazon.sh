@@ -8,7 +8,7 @@ cat > ~/.local/bin/qmazon <<'EOF'
 set -euo pipefail
 
 INITIAL_PWD="$(pwd)"
-MON_START_DELAY="${MON_START_DELAY:-15}"
+MON_START_DELAY="${MON_START_DELAY:-0}"
 
 random_slug() {
   local verbs=(align blaze bridge charge drift focus glide ignite pivot sync)
@@ -43,7 +43,7 @@ SESSION="qmazon${NAME:+-$NAME}"
 BASE="$HOME/.local/share/qmazon/sessions/$SESSION"
 LOGDIR="$BASE/logs"
 POINTER="$BASE/latest_log"
-PATTERN="${PATTERN:-Allow this action.*\\[y/n/t\\]:}"   # change if the prompt differs
+PATTERN="${PATTERN:-Allow this}"   # change if the prompt differs
 MON_DEBOUNCE="${MON_DEBOUNCE:-1}"                       # seconds; prevents double pushes
 mkdir -p "$LOGDIR"
 
@@ -77,6 +77,7 @@ done < "${QMAZON_CMD_FILE:?Missing QMAZON_CMD_FILE}"
 WORKDIR="${QMAZON_START_DIR:?Missing QMAZON_START_DIR}"
 PROMPT="${QMAZON_PROMPT:-Press Enter to start}"
 SESSION_NAME="${QMAZON_SESSION_NAME:-qmazon}"
+MON_DELAY="${QMAZON_MON_DELAY:-0}"
 
 cmd_text="$(printf '%q ' "${CMD_ARR[@]}")"
 cmd_text="${cmd_text% }"
@@ -85,6 +86,7 @@ printf '\n%s\n' "$PROMPT"
 printf 'Session: %s\n' "$SESSION_NAME"
 printf 'Working directory: %s\n' "$WORKDIR"
 printf 'Queued command: %s\n' "$cmd_text"
+printf 'Monitor window "monitor" will watch logs after %ss and auto-send "t" + Enter on match.\n' "$MON_DELAY"
 printf 'Press Enter to continue... '
 read -r
 printf '\n'
@@ -94,8 +96,8 @@ START
 chmod +x "$START_SCRIPT"
 
 # Run the command in the q window with PATH/aliases
-printf -v START_CMD 'env QMAZON_START_DIR=%q QMAZON_CMD_FILE=%q QMAZON_PROMPT=%q QMAZON_SESSION_NAME=%q %q' \
-  "$INITIAL_PWD" "$CMD_FILE" "$PROMPT_MESSAGE" "$SESSION" "$START_SCRIPT"
+printf -v START_CMD 'env QMAZON_START_DIR=%q QMAZON_CMD_FILE=%q QMAZON_PROMPT=%q QMAZON_SESSION_NAME=%q QMAZON_MON_DELAY=%q %q' \
+  "$INITIAL_PWD" "$CMD_FILE" "$PROMPT_MESSAGE" "$SESSION" "$MON_START_DELAY" "$START_SCRIPT"
 tmux respawn-pane -k -t "${SESSION}:0.0" "$START_CMD"
 
 # Create and start a background monitor that tails this session log
@@ -112,20 +114,31 @@ START_DELAY="$MON_START_DELAY"
 mkdir -p "$BASE"
 : > "\$STATE" || true
 last=0
-printf 'Waiting %ss before monitoring %s\n' "\$START_DELAY" "$LOGFILE"
-sleep "\$START_DELAY"
+if [[ "\$START_DELAY" =~ ^[0-9]+$ ]] && [ "\$START_DELAY" -gt 0 ]; then
+  printf 'Waiting %ss before monitoring %s\n' "\$START_DELAY" "$LOGFILE"
+  sleep "\$START_DELAY"
+else
+  printf 'Monitoring %s immediately\n' "$LOGFILE"
+fi
 tail -n0 -F "\$LOGFILE" | while IFS= read -r line; do
-  printf '%s\n' "\$line" | grep -E "\$PATTERN" >/dev/null || continue
+  clean_line=\$(printf '%s\n' "\$line" | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g')
+  printf '%s\n' "\$clean_line" | grep -E "\$PATTERN" >/dev/null || continue
   now=\$(date +%s)
   if [ \$((now-last)) -ge \$DEBOUNCE ]; then
     tmux send-keys -t "\$TARGET" "t" Enter
     last=\$now; echo "\$now" > "\$STATE"
     printf '%s monitor: pushed t\n' "\$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "\$LOGFILE"
+    tmux display-message -t "\$TARGET" "qmazon monitor sent t at \$(date +%H:%M:%S)"
   fi
 done
 MON
 chmod +x "$MON_SCRIPT"
 tmux new-window -d -t "$SESSION" -n monitor "$MON_SCRIPT"
+if [[ "$MON_START_DELAY" =~ ^[0-9]+$ ]] && [ "$MON_START_DELAY" -gt 0 ]; then
+  tmux display-message -t "$SESSION" "qmazon monitor waiting ${MON_START_DELAY}s before watching logs"
+else
+  tmux display-message -t "$SESSION" "qmazon monitor watching logs now"
+fi
 
 # (optional) separate log session (quick way to view logs)
 LOG_SESSION="${SESSION}-logs"
@@ -149,5 +162,5 @@ fi
 EOF
 
 chmod +x ~/.local/bin/qmazon
-echo "OK. Launch: qmazon | qmazon foo | qmazon foo -- amq -v"
+echo "OK. Launch: qmazon | qmazon foo | qmazon foo -- q -v"
 
