@@ -10,4 +10,4 @@ Install the qmazon helper with a single command on macOS (requires `curl`, `tmux
 curl -fsSL https://raw.githubusercontent.com/taituo/qmazon/master/qmazon.sh | bash
 ```
 
-After installation, launch the default session with `qmazon` or pass a suffix, e.g. `qmazon foo`.
+After installation, launch the default session with `qmazon` or pass a suffix/command, e.g. `qmazon foo -- q -v`.

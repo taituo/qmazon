@@ -24,7 +24,7 @@ random_slug() {
 # Usage: qmazon [session suffix] [-- command and args...]
 #   qmazon                # session: qmazon, command: q
 #   qmazon foo            # session: qmazon-foo, command: q
-#   qmazon foo -- amq -v  # session: qmazon-foo, command: amq -v
+#   qmazon foo -- q -v    # session: qmazon-foo, command: q -v
 NAME="${1-}"
 if [[ "$NAME" == "--" ]]; then NAME=""; shift; fi
 CMD=( q )  # default command
