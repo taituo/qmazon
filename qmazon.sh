@@ -1,22 +1,22 @@
-# Hakemistot
+# Directories
 mkdir -p ~/.local/bin
 mkdir -p ~/.local/share/qmazon/sessions
 
-# Asenna ~/.local/bin/qmazon
+# Install ~/.local/bin/qmazon
 cat > ~/.local/bin/qmazon <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -------- asetukset --------
-# Käyttö: qmazon [sessio-suffix] [-- komento ja argit...]
-#   qmazon                # sessio: qmazon, komento: q
-#   qmazon foo            # sessio: qmazon-foo, komento: q
-#   qmazon foo -- amq -v  # sessio: qmazon-foo, komento: amq -v
+# -------- settings --------
+# Usage: qmazon [session suffix] [-- command and args...]
+#   qmazon                # session: qmazon, command: q
+#   qmazon foo            # session: qmazon-foo, command: q
+#   qmazon foo -- amq -v  # session: qmazon-foo, command: amq -v
 NAME="${1-}"
 if [[ "$NAME" == "--" ]]; then NAME=""; shift; fi
-CMD=( q )  # oletuskomento
+CMD=( q )  # default command
 if [[ $# -gt 0 ]]; then
-  # jos on "--", ota sen jälkeinen komento
+  # if there is "--", take the command after it
   while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
   if [[ "${1-}" == "--" ]]; then shift; fi
   if [[ $# -gt 0 ]]; then CMD=( "$@" ); fi
@@ -26,26 +26,26 @@ SESSION="qmazon${NAME:+-$NAME}"
 BASE="$HOME/.local/share/qmazon/sessions/$SESSION"
 LOGDIR="$BASE/logs"
 POINTER="$BASE/latest_log"
-PATTERN="${PATTERN:-Allow this action.*\\[y/n/t\\]:}"   # muuta jos promptti poikkeaa
-MON_DEBOUNCE="${MON_DEBOUNCE:-1}"                       # sekuntia, estää tuplapushit
+PATTERN="${PATTERN:-Allow this action.*\\[y/n/t\\]:}"   # change if the prompt differs
+MON_DEBOUNCE="${MON_DEBOUNCE:-1}"                       # seconds; prevents double pushes
 mkdir -p "$LOGDIR"
 
-# starttaa tmux-palvelin nopeasti (nopeuttaa ensikäynnistystä)
+# start tmux server eagerly (faster first launch)
 tmux start-server 2>/dev/null || true
 
-# Luo/avaa pääsessio, ikkuna 0 = q
+# Create/open the main session, window 0 = q
 tmux new-session -Ad -s "$SESSION" -n q
 
-# Pane 0.0: aloita logitus ENNEN komennon ajoa, ettei promptti pääse ohi
+# Pane 0.0: start logging before the command runs so the prompt isn't missed
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LOGFILE="${LOGDIR}/${SESSION}-$(echo "${CMD[*]}" | awk '{print $1}')-${STAMP}.log"
 tmux pipe-pane -o -t "${SESSION}:0.0" "cat >> \"$LOGFILE\"" || true
 printf '%s\n' "$LOGFILE" > "$POINTER"
 
-# Aja komento q-ikkunassa luotettavasti PATH/aliasien kanssa
+# Run the command in the q window with PATH/aliases
 tmux respawn-pane -k -t "${SESSION}:0.0" "bash -lc '\"${CMD[0]}\" ${CMD[@]:1}'"
 
-# Luo ja käynnistä taustamonitori, joka tailaa juuri tämän session lokia
+# Create and start a background monitor that tails this session log
 MON_SCRIPT="/tmp/qmazon-monitor-${SESSION}.sh"
 cat > "$MON_SCRIPT" <<MON
 #!/usr/bin/env bash
@@ -69,9 +69,9 @@ tail -n0 -F "\$LOGFILE" | while IFS= read -r line; do
 done
 MON
 chmod +x "$MON_SCRIPT"
-tmux run-shell -b "$MON_SCRIPT &"   # ajetaan tmux-palvelimen taustassa
+tmux run-shell -b "$MON_SCRIPT &"   # run inside the tmux server background
 
-# (valinn.): erillinen lokisessio (helppo vilkaista lokit)
+# (optional) separate log session (quick way to view logs)
 LOG_SESSION="${SESSION}-logs"
 if ! tmux has-session -t "$LOG_SESSION" 2>/dev/null; then
   tmux new-session -Ad -s "$LOG_SESSION" -n logs "printf 'Following: %s\n' \"$LOGFILE\"; tail -F \"$LOGFILE\""
@@ -79,11 +79,11 @@ else
   tmux send-keys -t "${LOG_SESSION}:logs.0" C-c "printf 'Following: %s\n' \"$LOGFILE\"; tail -F \"$LOGFILE\"" C-m
 fi
 
-# Pidä fokus pääsession ikkunassa 0
+# Keep focus on the main session window 0
 tmux select-window -t "${SESSION}:0"
 tmux select-pane   -t "${SESSION}:0.0"
 
-# Liity/vaihda sessioon
+# Attach/switch to the session
 if [ -z "${TMUX:-}" ]; then
   tmux attach -t "$SESSION"
 else
@@ -93,5 +93,5 @@ fi
 EOF
 
 chmod +x ~/.local/bin/qmazon
-echo "OK. Käynnistä: qmazon | qmazon foo | qmazon foo -- amq -v"
+echo "OK. Launch: qmazon | qmazon foo | qmazon foo -- amq -v"
 
